@@ -1,11 +1,12 @@
 import sqlite3
 
-import joblib
 import pandas as pd
 from apscheduler.schedulers.background import BackgroundScheduler
+from catboost import CatBoost
 from fastapi import FastAPI
-from implicit.als import AlternatingLeastSquares
-from scipy.sparse import csr_matrix
+from sklearn.preprocessing import LabelEncoder
+from surprise import SVD, Dataset, Reader
+from surprise.dump import load
 
 
 def refit_model():
@@ -13,49 +14,46 @@ def refit_model():
     global model
     con = sqlite3.connect("example.db")
     cur = con.cursor()
-    new_model = AlternatingLeastSquares(
-        factors=10, regularization=0.5, alpha=10, iterations=15
-    )
     res = cur.execute("SELECT * FROM ratings;")
-    # csr_utils = pd.pivot_table(
-    #     data=ratings, values="rating", index="userId", columns="movieId"
-    # )
-    new_model.fit(csr_matrix(res.fetchall()))
+
+    reader = Reader(rating_scale=(1, 5))
+    rating_surprise = Dataset.load_from_df(
+        pd.DataFrame(res.fetchall())[["userId", "movieId", "rating"]], reader
+    )
+    trainset = rating_surprise.build_full_trainset()
+
+    new_model = SVD()
+    new_model.fit(trainset)
     model = new_model
     print("\n MODEL REFIT PROCESS ENDED SUCCESSFULLY\n")
 
 
 app = FastAPI()
 
-model = joblib.load("model.pkl")
-
-con = sqlite3.connect("example.db")
-cur = con.cursor()
-
-res = cur.execute("SELECT * FROM movies;")
-
 scheduler = BackgroundScheduler()
 scheduler.add_job(refit_model, "interval", days=1, start_date="2026-01-01 00:00:00")
 scheduler.start()
 
-movies = pd.DataFrame(res.fetchall(), columns=["movieId", "title", "genres"])
-res = cur.execute("SELECT * FROM ratings;")
-ratings = pd.DataFrame(
-    res.fetchall(), columns=["userId", "movieId", "rating", "timestamp"]
-)
+cand_model = load("cand_model_50")[1]
+rank_model = CatBoost()
+rank_model.load_model("ranker_model.cbm")
 
-# movies = pd.read_csv("movies.csv")
-# ratings = pd.read_csv("ratings.csv")
+con = sqlite3.connect("example.db")
+cur = con.cursor()
 
-util_df = pd.pivot_table(
-    data=ratings, values="rating", index="userId", columns="movieId"
-)
-csr_utils = csr_matrix(util_df)
+ratings = pd.read_csv("ratings.csv")
+user_encoder, item_encoder = LabelEncoder(), LabelEncoder()
+ratings["userId"] = user_encoder.fit_transform(ratings["userId"])
+ratings["movieId"] = item_encoder.fit_transform(ratings["movieId"])
 
+tags = pd.read_csv("tags.csv")
+tags = tags.groupby(["movieId", "tag"]).size().reset_index(name="count")
+most_pop_tag = tags.loc[tags.groupby("movieId")["count"].idxmax()]
+ratings = ratings.merge(most_pop_tag[["movieId", "tag"]], on="movieId", how="left")
+del tags
+# del most_pop_tag
 
-# class Movie(BaseModel):
-#     movieId: int
-#     movieTitle: str
+all_items = ratings["movieId"].unique()
 
 
 @app.get("/add_interaction")
@@ -65,17 +63,41 @@ async def add_interaction(userid: int, itemid: int, rating: int, timestamp=15376
     res = cur.execute(
         f"INSERT INTO ratings(userId,movieId,rating,timestamp) values({userid},{itemid},{rating},{timestamp});"
     )
-    print("\ninserting data in db\n")
+    # print("\ninserting data in db\n")
     print(res.fetchall())
 
 
 @app.get("/getrecs")
-async def recommendations(movieId: int, recs_size: int):
+async def recommendations(userId: int, recs_size: int):
     if recs_size > 50:
         recs_size = 10
+    best_items = []
+    for item in all_items:
+        pred = cand_model.predict(userId, item, None)
+        best_items.append((pred.iid, pred.est))
+    # print(pd.Series([x[1] for x in best_items]).value_counts())
+    best_items = sorted(best_items, key=lambda x: x[1], reverse=True)[:200]
+    # print("best_items = ", best_items)
+    most_pop_tag_dict = dict(zip(most_pop_tag["movieId"], most_pop_tag["tag"]))
 
-    ids, scores = model.recommend(
-        movieId, csr_utils[movieId], recs_size, filter_already_liked_items=False
+    my_tags = [
+        most_pop_tag_dict[i[0]] if i[0] in most_pop_tag_dict else "unknown"
+        for i in best_items
+    ]
+    del most_pop_tag_dict
+    svd_preds = pd.DataFrame(
+        {
+            "userId": userId,
+            "movieId": [_[0] for _ in best_items],
+            "svd_score": [_[1] for _ in best_items],
+            "tag": my_tags,
+        }
     )
-
-    return {"ids": ids.tolist(), "scores": scores.tolist()}
+    svd_preds = svd_preds.explode(["svd_score", "tag"])
+    svd_preds.fillna("unknown", inplace=True)
+    print(svd_preds)
+    svd_preds["final_rating"] = rank_model.predict(svd_preds)
+    svd_preds.sort_values("final_rating")
+    return {
+        "ids": [row["movieId"] for index, row in svd_preds.head(recs_size).iterrows()]
+    }
