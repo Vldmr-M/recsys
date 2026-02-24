@@ -34,25 +34,29 @@ scheduler = BackgroundScheduler()
 scheduler.add_job(refit_model, "interval", days=1, start_date="2026-01-01 00:00:00")
 scheduler.start()
 
-cand_model = load("cand_model_50")[1]
+cand_model = load("models/cand_model_30")[1]
 rank_model = CatBoost()
-rank_model.load_model("ranker_model.cbm")
+rank_model.load_model("models/ranker_model.cbm")
 
-con = sqlite3.connect("example.db")
-cur = con.cursor()
+# con = sqlite3.connect("example.db")
+# cur = con.cursor()
 
-ratings = pd.read_csv("ratings.csv")
+ratings = pd.read_csv("data/ratings.csv")
 user_encoder, item_encoder = LabelEncoder(), LabelEncoder()
 ratings["userId"] = user_encoder.fit_transform(ratings["userId"])
 ratings["movieId"] = item_encoder.fit_transform(ratings["movieId"])
 
-tags = pd.read_csv("tags.csv")
+tags = pd.read_csv("data/tags.csv")
 tags = tags.groupby(["movieId", "tag"]).size().reset_index(name="count")
 most_pop_tag = tags.loc[tags.groupby("movieId")["count"].idxmax()]
 ratings = ratings.merge(most_pop_tag[["movieId", "tag"]], on="movieId", how="left")
 del tags
 # del most_pop_tag
 
+links = pd.read_csv("data/links.csv")
+links = {i.movieId: i.tmdbId for i in links.itertuples()}
+for i in links.items():
+    print(i)
 all_items = ratings["movieId"].unique()
 
 
@@ -98,6 +102,9 @@ async def recommendations(userId: int, recs_size: int):
     print(svd_preds)
     svd_preds["final_rating"] = rank_model.predict(svd_preds)
     svd_preds.sort_values("final_rating")
-    return {
-        "ids": [row["movieId"] for index, row in svd_preds.head(recs_size).iterrows()]
-    }
+    final_preds = [
+        row["movieId"] for index, row in svd_preds.head(recs_size).iterrows()
+    ]
+    imdb_id = [links[i] for i in final_preds]
+    print(imdb_id)
+    return {"ids": final_preds, "imdb_id": imdb_id}
