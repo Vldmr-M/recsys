@@ -1,9 +1,9 @@
 import requests
 import streamlit as st
+import streamlit.components.v1 as components
 
-
-api_key_imdb = ""
-api_key_tmdb = ""
+api_key_imdb = "2d89625d"
+api_key_tmdb = "ffd0bec30eafeebf7f673cb848fb68ff"
 
 
 def get_movie_data(imdb_id):
@@ -11,18 +11,17 @@ def get_movie_data(imdb_id):
     response = requests.get(url)
     return response.json()
 
+
 def get_tmdb_data(tmdb_id):
-    # print(tmdb_id,type(tmdb_id))
-    proxies = {
-        'http': 'socks5h://localhost:1081',
-        'https': 'socks5h://localhost:1081'
-    }
+    # my own vpn
+    proxies = {"http": "socks5h://localhost:1081", "https": "socks5h://localhost:1081"}
+
     url = f"https://api.themoviedb.org/3/movie/{int(tmdb_id)}?api_key={api_key_tmdb}"
-    response = requests.get(url,proxies=proxies)
+    response = requests.get(url, proxies=proxies)
     response = response.json()
-    movie_name = response['original_title']
+    movie_name = response["original_title"]
     poster_path = f"https://image.tmdb.org/t/p/w500{response['poster_path']}"
-    return movie_name,poster_path
+    return movie_name, poster_path
 
 
 st.title("Получение рекомендаций")
@@ -41,25 +40,53 @@ if submit_button:
     response = requests.get(
         f"http://localhost:8000/getrecs/?userId={user_id}&recs_size={num_recs}"
     )
-
+    images = []
     st.success("Форма отправлена!")
-    # st.write(f"ID пользователя: {user_id}")
-    # st.write(f"Количество рекомендаций: {num_recs}")
-    # st.write(response.json())
-    print(response.json())
     for id in response.json()["imdb_id"]:
         movie_name, poster_path = get_tmdb_data(id)
-        st.image(poster_path,caption = movie_name)
-        # print(id)
-        # print(data)
-        # if data['Response'] == 'True':
-        #     st.subheader(data["Title"])
-        #     poster_url = data["Poster"]
-        #     if poster_url != "N/A":
-        #         st.image(poster_url)
+        images.append({"url": poster_path, "caption": movie_name})
+        # st.image(poster_path, caption=movie_name)
 
-    # Здесь можно вызвать вашу функцию
-    # recommendations = get_recommendations(user_id, num_recs)
-    # st.write(recommendations)
-    #
-    # No connection adapters were found for 'localhost:8000/getrecs/?userId=250&recs_size=5'
+    cards = "".join(
+        [
+            f"""
+        <div class="image-card">
+            <img src="{item["url"]}">
+            <div class="caption">{item["caption"]}</div>
+        </div>
+        """
+            for item in images
+        ]
+    )
+
+    html = f"""
+    <style>
+    .horizontal-scroll {{
+        display: flex;
+        overflow-x: auto;
+        gap: 20px;
+    }}
+
+    .image-card {{
+        flex-shrink: 0;
+        text-align: center;
+    }}
+
+    .image-card img {{
+        height: 400px;
+        border-radius: 12px;
+        display: block;
+    }}
+
+    .caption {{
+        margin-top: 8px;
+        font-size: 14px;
+    }}
+    </style>
+
+    <div class="horizontal-scroll">
+    {cards}
+    </div>
+    """
+
+    components.html(html, height=470, scrolling=True)

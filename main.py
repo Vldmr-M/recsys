@@ -55,8 +55,8 @@ del tags
 
 links = pd.read_csv("data/links.csv")
 links = {i.movieId: i.tmdbId for i in links.itertuples()}
-for i in links.items():
-    print(i)
+# for i in links.items():
+#     print(i)
 all_items = ratings["movieId"].unique()
 
 
@@ -99,12 +99,12 @@ async def recommendations(userId: int, recs_size: int):
     )
     svd_preds = svd_preds.explode(["svd_score", "tag"])
     svd_preds.fillna("unknown", inplace=True)
-    print(svd_preds)
+    # print(svd_preds)
     svd_preds["final_rating"] = rank_model.predict(svd_preds)
     svd_preds.sort_values("final_rating")
     final_preds = [
         row["movieId"] for index, row in svd_preds.head(recs_size).iterrows()
     ]
     imdb_id = [links[i] for i in final_preds]
-    print(imdb_id)
+    # print(imdb_id)
     return {"ids": final_preds, "imdb_id": imdb_id}
