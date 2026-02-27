@@ -1,0 +1,6 @@
+cand_model_50
+.venv
+data
+models
+__pycache__
+example.db

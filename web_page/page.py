@@ -24,28 +24,26 @@ def get_tmdb_data(tmdb_id):
     return movie_name, poster_path
 
 
-st.title("Получение рекомендаций")
+st.title("Recommender system")
 
-# Форма
 with st.form("recommendation_form"):
-    user_id = st.text_input("Введите ID пользователя")
+    user_id = st.text_input("Enter user id")
     num_recs = st.number_input(
-        "Количество рекомендаций", min_value=1, max_value=100, value=5, step=1
+        "Number of recs", min_value=1, max_value=100, value=5, step=1
     )
 
-    submit_button = st.form_submit_button("Отправить")
+    submit_button = st.form_submit_button("submit")
 
-# Обработка отправки
+
 if submit_button:
     response = requests.get(
         f"http://localhost:8000/getrecs/?userId={user_id}&recs_size={num_recs}"
     )
     images = []
-    st.success("Форма отправлена!")
+    st.success("Success!")
     for id in response.json()["imdb_id"]:
         movie_name, poster_path = get_tmdb_data(id)
         images.append({"url": poster_path, "caption": movie_name})
-        # st.image(poster_path, caption=movie_name)
 
     cards = "".join(
         [
