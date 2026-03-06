@@ -23,3 +23,19 @@ This project is a movie recommendation system that uses various machine learning
 - Streamlit: for creating a web interface.
 - requests: for working with external APIs (OMDb and TMDb).
 - CatBoost, Surprise (SVD): for building recommendation models.
+
+## To run this project
+1) Clone the repository:
+```bash
+    git clone https://github.com/Vldmr-M/recsys.git
+    cd your-repository
+```
+2) Navigate to the project directory:
+```bash
+    cd recsys
+```
+
+3) Build and run all services using Docker Compose:
+```bash
+    docker compose up --build
+```
